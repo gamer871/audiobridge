@@ -26,7 +26,7 @@ AudioBridge captures your system's audio output using PulseAudio/PipeWire and st
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/audiobridge.git
+git clone https://github.com/gamer871/audiobridge.git
 cd audiobridge
 chmod +x install.sh
 ./install.sh
