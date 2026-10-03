@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.pem
+*.crt
+*.csr
+*.srl
+*.cnf

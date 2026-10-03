@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AudioBridge</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AudioBridge">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+            background: #000;
+            color: #f5f5f7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            -webkit-user-select: none;
+            user-select: none;
+            overflow-x: hidden;
+        }
+        
+        /* Top bar */
+        .topbar {
+            width: 100%;
+            padding: 52px 24px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .app-title {
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.2px;
+        }
+        .connection-badge {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.3s ease;
+        }
+        .connection-badge .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            transition: background 0.3s;
+        }
+        .connection-badge.off { background: #1c1c1e; color: #636366; }
+        .connection-badge.off .dot { background: #636366; }
+        .connection-badge.waiting { background: #1c1c1e; color: #ff9f0a; }
+        .connection-badge.waiting .dot { background: #ff9f0a; animation: blink 1s infinite; }
+        .connection-badge.on { background: rgba(48,209,88,0.12); color: #30d158; }
+        .connection-badge.on .dot { background: #30d158; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+        
+        /* Visualizer area */
+        .viz-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            width: 100%;
+            min-height: 260px;
+        }
+        
+        /* Latency ring */
+        .ring-container {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            margin-bottom: 24px;
+        }
+        .ring-bg, .ring-fill {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+        .ring-bg circle, .ring-fill circle {
+            fill: none;
+            stroke-width: 6;
+            cx: 90; cy: 90; r: 84;
+        }
+        .ring-bg circle { stroke: #1c1c1e; }
+        .ring-fill circle {
+            stroke: #30d158;
+            stroke-linecap: round;
+            stroke-dasharray: 527.79;
+            stroke-dashoffset: 527.79;
+            transform: rotate(-90deg);
+            transform-origin: center;
+            transition: stroke-dashoffset 0.4s ease, stroke 0.3s;
+        }
+        .ring-center {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .ring-value {
+            font-size: 42px;
+            font-weight: 300;
+            letter-spacing: -2px;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+        .ring-unit {
+            font-size: 13px;
+            color: #86868b;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        .ring-label {
+            font-size: 11px;
+            color: #48484a;
+            margin-top: 2px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* Play button */
+        .play-btn {
+            width: 72px; height: 72px;
+            border-radius: 50%;
+            border: none;
+            background: #f5f5f7;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .play-btn:active { transform: scale(0.92); }
+        .play-btn.playing { background: #30d158; }
+        .play-btn svg { width: 28px; height: 28px; }
+        .play-btn .icon-play { fill: #000; }
+        .play-btn .icon-pause { fill: #000; display: none; }
+        .play-btn.playing .icon-play { display: none; }
+        .play-btn.playing .icon-pause { display: block; }
+        
+        /* Bottom panel */
+        .panel {
+            width: 100%;
+            background: #1c1c1e;
+            border-radius: 20px 20px 0 0;
+            padding: 24px 24px calc(env(safe-area-inset-bottom, 0px) + 16px);
+        }
+        
+        /* Slider rows */
+        .slider-row {
+            display: flex;
+            align-items: center;
+            padding: 14px 0;
+        }
+        .slider-row + .slider-row { border-top: 1px solid rgba(255,255,255,0.06); }
+        .slider-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .slider-icon svg { width: 16px; height: 16px; fill: #fff; }
+        .slider-icon.vol { background: #007aff; }
+        .slider-icon.lat { background: #ff9f0a; }
+        .slider-icon.buf { background: #5e5ce6; }
+        
+        .slider-content { flex: 1; min-width: 0; }
+        .slider-title {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .slider-val { color: #86868b; font-weight: 400; font-variant-numeric: tabular-nums; }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: #38383a;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: #f5f5f7;
+            cursor: pointer;
+            box-shadow: 0 0.5px 4px rgba(0,0,0,0.4);
+        }
+        
+        /* Stats row */
+        .stats-row {
+            display: flex;
+            gap: 1px;
+            margin-bottom: 16px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .stat-item {
+            flex: 1;
+            text-align: center;
+            padding: 12px 8px;
+            background: #1c1c1e;
+        }
+        .stat-item-value {
+            font-size: 16px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            margin-bottom: 2px;
+        }
+        .stat-item-label {
+            font-size: 10px;
+            color: #636366;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <span class="app-title">AudioBridge</span>
+        <div class="connection-badge off" id="badge">
+            <span class="dot"></span>
+            <span id="badgeText">Offline</span>
+        </div>
+    </div>
+    
+    <div class="viz-area">
+        <div class="ring-container">
+            <svg class="ring-bg" viewBox="0 0 180 180"><circle/></svg>
+            <svg class="ring-fill" viewBox="0 0 180 180"><circle id="ringCircle"/></svg>
+            <div class="ring-center">
+                <div class="ring-value" id="ringValue">--</div>
+                <div class="ring-unit">ms</div>
+                <div class="ring-label">latency</div>
+            </div>
+        </div>
+        
+        <button class="play-btn" id="playBtn">
+            <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5.14v14.72a1 1 0 001.5.86l11.24-7.36a1 1 0 000-1.72L9.5 4.28A1 1 0 008 5.14z"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24"><rect x="5" y="3" width="5" height="18" rx="1.5"/><rect x="14" y="3" width="5" height="18" rx="1.5"/></svg>
+        </button>
+    </div>
+    
+    <div class="panel">
+        <div class="stats-row">
+            <div class="stat-item">
+                <div class="stat-item-value" id="bufStat">--</div>
+                <div class="stat-item-label">Buffer</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-value" id="dropStat">0</div>
+                <div class="stat-item-label">Dropped</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-value" id="uptimeStat">--</div>
+                <div class="stat-item-label">Uptime</div>
+            </div>
+        </div>
+        
+        <div class="slider-row">
+            <div class="slider-icon vol">
+                <svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5zm2 3.83v6.34a4 4 0 000-6.34zM16.54 5.46a8 8 0 010 13.08l-1.42-1.42a6 6 0 000-10.24l1.42-1.42z"/></svg>
+            </div>
+            <div class="slider-content">
+                <div class="slider-title">Volume <span class="slider-val" id="volVal">100%</span></div>
+                <input type="range" id="volSlider" min="0" max="200" value="100">
+            </div>
+        </div>
+        
+        <div class="slider-row">
+            <div class="slider-icon lat">
+                <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/></svg>
+            </div>
+            <div class="slider-content">
+                <div class="slider-title">Max Latency <span class="slider-val" id="latVal">80ms</span></div>
+                <input type="range" id="latSlider" min="40" max="300" value="80" step="10">
+            </div>
+        </div>
+        
+        <div class="slider-row">
+            <div class="slider-icon buf">
+                <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>
+            </div>
+            <div class="slider-content">
+                <div class="slider-title">Buffer Size <span class="slider-val" id="bufVal">1024</span></div>
+                <input type="range" id="bufSlider" min="0" max="2" value="0" step="1">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SR = 48000, CH = 2, BUF_SIZES = [1024, 2048, 4096];
+        const RING = SR * 2;
+        const ringL = new Float32Array(RING), ringR = new Float32Array(RING);
+        let wP = 0, rP = 0, dropped = 0;
+        let maxLat = 3840; // 80ms in frames
+        let curBuf = 1024;
+        let audioCtx, ws, scriptNode, gainNode, audioEl;
+        let playing = false, startTs = null, reconTimer = null;
+        
+        const $ = id => document.getElementById(id);
+        
+        function badge(cls, txt) {
+            $('badge').className = 'connection-badge ' + cls;
+            $('badgeText').innerText = txt;
+        }
+        
+        function silentWav() {
+            const sr=44100,ns=sr,ds=ns*2,buf=new ArrayBuffer(44+ds),v=new DataView(buf);
+            const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+            w(0,'RIFF');v.setUint32(4,36+ds,true);w(8,'WAVE');w(12,'fmt ');
+            v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+            v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);
+            v.setUint16(34,16,true);w(36,'data');v.setUint32(40,ds,true);
+            return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
+        }
+        
+        function fmtTime(s) {
+            const m=Math.floor(s/60); return m+':'+String(Math.floor(s%60)).padStart(2,'0');
+        }
+
+        async function initAudio() {
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.src = silentWav(); audioEl.loop = true; audioEl.volume = 0.01;
+                try { await audioEl.play(); } catch(e) {}
+            }
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
+                await audioCtx.resume();
+                gainNode = audioCtx.createGain();
+                gainNode.gain.value = $('volSlider').value / 100;
+                gainNode.connect(audioCtx.destination);
+            }
+            if (scriptNode) scriptNode.disconnect();
+            scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
+            scriptNode.onaudioprocess = proc;
+            scriptNode.connect(gainNode);
+        }
+        
+        function proc(e) {
+            const oL=e.outputBuffer.getChannelData(0), oR=e.outputBuffer.getChannelData(1);
+            const len=e.outputBuffer.length;
+            let avail = (wP - rP + RING) % RING;
+            if (avail > maxLat) {
+                const skip = avail - (maxLat >> 1);
+                rP = (rP + skip) % RING; avail -= skip; dropped += skip;
+            }
+            for (let i=0; i<len; i++) {
+                if (avail > 0) {
+                    oL[i]=ringL[rP]; oR[i]=ringR[rP]; rP=(rP+1)%RING; avail--;
+                } else { oL[i]=0; oR[i]=0; }
+            }
+        }
+        
+        function connectWS() {
+            if (ws && ws.readyState < 2) return;
+            badge('waiting','Connecting');
+            ws = new WebSocket(`wss://${location.hostname}:${location.port}/ws`);
+            ws.binaryType = 'arraybuffer';
+            ws.onopen = () => { badge('on','Live'); startTs=Date.now(); wP=rP=0; dropped=0; };
+            ws.onmessage = (e) => {
+                const d=new Int16Array(e.data), fr=d.length/CH;
+                for(let i=0;i<fr;i++){
+                    ringL[wP]=d[i*CH]/32768; ringR[wP]=d[i*CH+1]/32768; wP=(wP+1)%RING;
+                }
+            };
+            ws.onerror = () => {};
+            ws.onclose = () => {
+                if (playing) { badge('waiting','Reconnecting'); reconTimer=setTimeout(connectWS,1000); }
+                else badge('off','Offline');
+            };
+        }
+        
+        async function start() {
+            $('playBtn').disabled = true;
+            await initAudio();
+            playing = true;
+            connectWS();
+            $('playBtn').disabled = false;
+            $('playBtn').classList.add('playing');
+        }
+        
+        function stop() {
+            playing = false;
+            clearTimeout(reconTimer);
+            if (ws) { ws.close(); ws = null; }
+            $('playBtn').classList.remove('playing');
+            badge('off','Offline');
+            $('ringValue').innerText = '--';
+            $('ringCircle').style.strokeDashoffset = 527.79;
+        }
+        
+        $('playBtn').addEventListener('click', () => playing ? stop() : start());
+        
+        $('volSlider').addEventListener('input', e => {
+            $('volVal').innerText = e.target.value + '%';
+            if (gainNode) gainNode.gain.value = e.target.value / 100;
+        });
+        $('latSlider').addEventListener('input', e => {
+            $('latVal').innerText = e.target.value + 'ms';
+            maxLat = Math.floor(e.target.value / 1000 * SR);
+        });
+        $('bufSlider').addEventListener('input', e => {
+            curBuf = BUF_SIZES[e.target.value];
+            $('bufVal').innerText = curBuf;
+            if (playing && audioCtx && gainNode) {
+                if (scriptNode) scriptNode.disconnect();
+                scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
+                scriptNode.onaudioprocess = proc;
+                scriptNode.connect(gainNode);
+            }
+        });
+        
+        // Stats
+        setInterval(() => {
+            if (!playing) return;
+            const avail = (wP - rP + RING) % RING;
+            const ms = Math.round(avail / SR * 1000);
+            
+            $('ringValue').innerText = ms;
+            const circ = 527.79;
+            const pct = Math.min(ms / 200, 1);
+            $('ringCircle').style.strokeDashoffset = circ - (circ * pct);
+            $('ringCircle').style.stroke = ms < 60 ? '#30d158' : ms < 120 ? '#ff9f0a' : '#ff453a';
+            
+            $('bufStat').innerText = avail;
+            $('dropStat').innerText = dropped > 999 ? (dropped/1000).toFixed(1)+'k' : dropped;
+            if (startTs) $('uptimeStat').innerText = fmtTime((Date.now()-startTs)/1000);
+        }, 500);
+    </script>
+</body>
+</html>
