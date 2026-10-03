@@ -336,17 +336,38 @@
         }
 
         async function initAudio() {
-            if (!audioEl) {
-                audioEl = document.createElement('audio');
-                audioEl.src = silentWav(); audioEl.loop = true; audioEl.volume = 0.01;
-                try { await audioEl.play(); } catch(e) {}
-            }
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
                 await audioCtx.resume();
+                
+                // Route audio through a Gain node for volume control
                 gainNode = audioCtx.createGain();
                 gainNode.gain.value = $('volSlider').value / 100;
-                gainNode.connect(audioCtx.destination);
+                
+                // BACKGROUND AUDIO TRICK FOR iOS:
+                // Create a MediaStream destination and pipe it into a real <audio> tag.
+                // We do NOT connect to audioCtx.destination, because playing through both
+                // creates a delay (comb filter/flanger) which makes it sound "wavy".
+                const destNode = audioCtx.createMediaStreamDestination();
+                gainNode.connect(destNode);
+                
+                if (!audioEl) {
+                    audioEl = new Audio();
+                    audioEl.srcObject = destNode.stream;
+                    audioEl.playsInline = true;
+                    try { await audioEl.play(); } catch(e) {}
+                }
+                
+                // Set MediaSession metadata to show on the lock screen (required for background execution)
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: 'PC Audio Stream',
+                        artist: 'AudioBridge'
+                    });
+                    
+                    navigator.mediaSession.setActionHandler('play', function() { start(); });
+                    navigator.mediaSession.setActionHandler('pause', function() { stop(); });
+                }
             }
             if (scriptNode) scriptNode.disconnect();
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
