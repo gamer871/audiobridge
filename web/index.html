@@ -295,16 +295,22 @@
         }
         $('micToggle').addEventListener('click', toggleMic);
         
+        let latHistory = [];
         setInterval(() => {
             if (!playing) return;
             const avail = (wP - rP + RING) % RING;
             const ms = Math.round(avail / SR * 1000);
             
-            $('ringValue').innerText = ms;
+            // Moving average to prevent the UI from looking "bouncy" due to chunking
+            latHistory.push(ms);
+            if (latHistory.length > 4) latHistory.shift();
+            const avgMs = Math.round(latHistory.reduce((a, b) => a + b) / latHistory.length);
+            
+            $('ringValue').innerText = avgMs;
             const circ = 527.79;
-            const pct = Math.min(ms / 200, 1);
+            const pct = Math.min(avgMs / 200, 1);
             $('ringCircle').style.strokeDashoffset = circ - (circ * pct);
-            $('ringCircle').style.stroke = ms < 60 ? '#30d158' : ms < 120 ? '#ff9f0a' : '#ff453a';
+            $('ringCircle').style.stroke = avgMs < 60 ? '#30d158' : avgMs < 120 ? '#ff9f0a' : '#ff453a';
             
             $('bufStat').innerText = avail;
             $('dropStat').innerText = dropped > 999 ? (dropped/1000).toFixed(1)+'k' : dropped;
