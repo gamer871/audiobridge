@@ -198,15 +198,17 @@
             if (mode === 'music') {
                 $('modeMusic').classList.add('active');
                 $('modeVideo').classList.remove('active');
-                vocalEQ.gain.value = 0; // Flat EQ
-                compressor.threshold.value = -12; // Gentle compression
-                compressor.ratio.value = 3;
+                vocalEQ.gain.value = 0; // Flat EQ — no processing
+                compressor.threshold.value = 0; // Never triggers
+                compressor.ratio.value = 1; // 1:1 = passthrough
+                compressor.knee.value = 0;
             } else {
                 $('modeVideo').classList.add('active');
                 $('modeMusic').classList.remove('active');
                 vocalEQ.gain.value = 4; // Boost vocal dialogue
-                compressor.threshold.value = -24; // Aggressive compression (evens out explosions/whispers)
+                compressor.threshold.value = -24;
                 compressor.ratio.value = 12;
+                compressor.knee.value = 30;
             }
         }
         $('modeMusic').addEventListener('click', () => setMode('music'));
