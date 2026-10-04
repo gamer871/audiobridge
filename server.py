@@ -174,6 +174,7 @@ class AudioBridgeServer:
 
         cert_path, key_path = ensure_certs(cert_dir)
         self.ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         self.ssl_ctx.load_cert_chain(cert_path, key_path)
 
     def process_request(self, connection, request):
@@ -299,7 +300,7 @@ class AudioBridgeServer:
                 ssl=self.ssl_ctx,
                 process_request=self.process_request,
                 ping_interval=None,
-                max_size=None,
+                max_size=65536,  # 64KB max per message — prevents abuse
             ):
                 await self.audio_capture()
         finally:

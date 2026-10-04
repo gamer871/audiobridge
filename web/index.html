@@ -54,6 +54,7 @@
         .slider-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
         .slider-icon svg { width: 16px; height: 16px; fill: #fff; }
         .slider-icon.vol { background: #007aff; }
+        .slider-icon.eq { background: #5e5ce6; }
         .slider-icon.mic { background: #ff3b30; }
         
         .slider-content { flex: 1; min-width: 0; }
@@ -180,12 +181,6 @@
                     audioEl.playsInline = true;
                     try { await audioEl.play(); } catch(e) {}
                 }
-                
-                if ('mediaSession' in navigator) {
-                    navigator.mediaSession.metadata = new MediaMetadata({ title: 'PC Audio Stream', artist: 'AudioBridge' });
-                    navigator.mediaSession.setActionHandler('play', () => start());
-                    navigator.mediaSession.setActionHandler('pause', () => stop());
-                }
             }
             if (scriptNode) scriptNode.disconnect();
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
@@ -238,7 +233,10 @@
             ws.onmessage = (e) => {
                 const d=new Int16Array(e.data), fr=d.length/CH;
                 for(let i=0;i<fr;i++){
-                    ringL[wP]=d[i*CH]/32768; ringR[wP]=d[i*CH+1]/32768; wP=(wP+1)%RING;
+                    // Overflow guard: don't let wP lap rP
+                    const nextWP = (wP + 1) % RING;
+                    if (nextWP === rP) { dropped++; continue; }
+                    ringL[wP]=d[i*CH]/32768; ringR[wP]=d[i*CH+1]/32768; wP=nextWP;
                 }
             };
             ws.onerror = () => {};
@@ -249,7 +247,7 @@
         }
         
         async function start() { $('playBtn').disabled = true; await initAudio(); playing = true; connectWS(); $('playBtn').disabled = false; $('playBtn').classList.add('playing'); }
-        function stop() { playing = false; clearTimeout(reconTimer); if (ws) { ws.close(); ws = null; } $('playBtn').classList.remove('playing'); badge('off','Offline'); $('ringValue').innerText = '--'; $('ringCircle').style.strokeDashoffset = 527.79; }
+        function stop() { playing = false; clearTimeout(reconTimer); if (ws) { ws.close(); ws = null; } $('playBtn').classList.remove('playing'); badge('off','Offline'); $('ringValue').innerText = '--'; $('ringCircle').style.strokeDashoffset = 527.79; latHistory = []; }
         
         $('playBtn').addEventListener('click', () => playing ? stop() : start());
         $('volSlider').addEventListener('input', e => {
