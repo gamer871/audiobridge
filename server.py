@@ -207,8 +207,10 @@ class AudioBridgeServer:
         print(f"[+] Client connected from {remote[0]}:{remote[1]}  "
               f"(total: {len(self.clients)})")
         try:
-            async for _ in websocket:
-                pass
+            async for message in websocket:
+                if isinstance(message, bytes) and hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
+                    self.mic_proc.stdin.write(message)
+                    await self.mic_proc.stdin.drain()
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
@@ -244,22 +246,57 @@ class AudioBridgeServer:
         finally:
             proc.terminate()
 
+    async def setup_mic(self):
+        print("Setting up virtual microphone (AudioBridge_Mic)...")
+        cmd = ["pactl", "load-module", "module-null-sink", 
+               "media.class=Audio/Source/Virtual", 
+               "sink_name=AudioBridge_Mic", 
+               "sink_properties=device.description=AudioBridge_Mic"]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                self.mic_module_id = res.stdout.strip()
+                print(f"Virtual microphone created (Module ID: {self.mic_module_id})")
+            else:
+                print("Warning: Failed to create virtual microphone.", res.stderr)
+        except Exception as e:
+            print(f"Warning: {e}")
+
+        self.mic_proc = await asyncio.create_subprocess_exec(
+            "pacat", "--playback", "--device=AudioBridge_Mic", 
+            "--format=s16le", "--rate=48000", "--channels=1", "--latency-msec=10",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+    def cleanup_mic(self):
+        if hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
+            self.mic_proc.terminate()
+        if hasattr(self, 'mic_module_id') and self.mic_module_id:
+            subprocess.run(["pactl", "unload-module", self.mic_module_id])
+
     async def run(self):
         print(f"\n  AudioBridge")
         print(f"  ──────────────────────────────")
         print(f"  URL:  https://localhost:{self.port}")
         print(f"  ──────────────────────────────\n")
+        
+        await self.setup_mic()
 
-        async with websockets.serve(
-            self.ws_handler,
-            "0.0.0.0",
-            self.port,
-            ssl=self.ssl_ctx,
-            process_request=self.process_request,
-            ping_interval=None,
-            max_size=None,
-        ):
-            await self.audio_capture()
+        try:
+            async with websockets.serve(
+                self.ws_handler,
+                "0.0.0.0",
+                self.port,
+                ssl=self.ssl_ctx,
+                process_request=self.process_request,
+                ping_interval=None,
+                max_size=None,
+            ):
+                await self.audio_capture()
+        finally:
+            self.cleanup_mic()
 
 
 # ---------------------------------------------------------------------------

@@ -173,6 +173,8 @@
         .slider-icon.vol { background: #007aff; }
         .slider-icon.lat { background: #ff9f0a; }
         .slider-icon.buf { background: #5e5ce6; }
+        .slider-icon.eq { background: #ff2d55; }
+        .slider-icon.mic { background: #ff3b30; }
         
         .slider-content { flex: 1; min-width: 0; }
         .slider-title {
@@ -202,6 +204,15 @@
             box-shadow: 0 0.5px 4px rgba(0,0,0,0.4);
         }
         
+        /* Preset buttons */
+        .preset-group { display: flex; gap: 8px; margin-top: 8px; }
+        .preset-btn { 
+            flex: 1; padding: 10px 4px; border-radius: 8px; border: none; 
+            background: #38383a; color: #fff; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 0.2s;
+        }
+        .preset-btn.active { background: #007aff; }
+        .preset-btn.mic-btn.active { background: #ff3b30; }
+
         /* Stats row */
         .stats-row {
             display: flex;
@@ -282,6 +293,30 @@
                 <input type="range" id="volSlider" min="0" max="200" value="100">
             </div>
         </div>
+
+        <div class="slider-row">
+            <div class="slider-icon eq">
+                <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+            </div>
+            <div class="slider-content">
+                <div class="slider-title">Audio Profile</div>
+                <div class="preset-group">
+                    <button class="preset-btn active" id="eqFlat">Flat</button>
+                    <button class="preset-btn" id="eqPhone">Phone Speaker</button>
+                    <button class="preset-btn" id="eqBass">Bass Boost</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="slider-row">
+            <div class="slider-icon mic">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
+            </div>
+            <div class="slider-content">
+                <div class="slider-title">Wireless PC Mic <span class="slider-val" id="micStatus">Off</span></div>
+                <button class="preset-btn mic-btn" id="micToggle" style="width:100%;margin-top:8px;">Enable iPhone Mic</button>
+            </div>
+        </div>
         
         <div class="slider-row">
             <div class="slider-icon lat">
@@ -313,22 +348,15 @@
         let curBuf = 1024;
         let audioCtx, ws, scriptNode, gainNode, audioEl;
         let playing = false, startTs = null, reconTimer = null;
+        let eqNodes = [];
+        
+        let micStream = null, micProc = null, micSrc = null;
         
         const $ = id => document.getElementById(id);
         
         function badge(cls, txt) {
             $('badge').className = 'connection-badge ' + cls;
             $('badgeText').innerText = txt;
-        }
-        
-        function silentWav() {
-            const sr=44100,ns=sr,ds=ns*2,buf=new ArrayBuffer(44+ds),v=new DataView(buf);
-            const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
-            w(0,'RIFF');v.setUint32(4,36+ds,true);w(8,'WAVE');w(12,'fmt ');
-            v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
-            v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);
-            v.setUint16(34,16,true);w(36,'data');v.setUint32(40,ds,true);
-            return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
         }
         
         function fmtTime(s) {
@@ -340,14 +368,26 @@
                 audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
                 await audioCtx.resume();
                 
-                // Route audio through a Gain node for volume control
+                // Set up EQ nodes
+                const lowNode = audioCtx.createBiquadFilter();
+                lowNode.type = 'lowshelf'; lowNode.frequency.value = 150;
+                
+                const midNode = audioCtx.createBiquadFilter();
+                midNode.type = 'peaking'; midNode.frequency.value = 1000; midNode.Q.value = 1;
+                
+                const highNode = audioCtx.createBiquadFilter();
+                highNode.type = 'highshelf'; highNode.frequency.value = 8000;
+                
+                eqNodes = [lowNode, midNode, highNode];
+                
                 gainNode = audioCtx.createGain();
                 gainNode.gain.value = $('volSlider').value / 100;
                 
-                // BACKGROUND AUDIO TRICK FOR iOS:
-                // Create a MediaStream destination and pipe it into a real <audio> tag.
-                // We do NOT connect to audioCtx.destination, because playing through both
-                // creates a delay (comb filter/flanger) which makes it sound "wavy".
+                // Connect EQ chain: scriptNode -> low -> mid -> high -> gain
+                lowNode.connect(midNode);
+                midNode.connect(highNode);
+                highNode.connect(gainNode);
+                
                 const destNode = audioCtx.createMediaStreamDestination();
                 gainNode.connect(destNode);
                 
@@ -358,7 +398,6 @@
                     try { await audioEl.play(); } catch(e) {}
                 }
                 
-                // Set MediaSession metadata to show on the lock screen (required for background execution)
                 if ('mediaSession' in navigator) {
                     navigator.mediaSession.metadata = new MediaMetadata({
                         title: 'PC Audio Stream',
@@ -372,7 +411,7 @@
             if (scriptNode) scriptNode.disconnect();
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
-            scriptNode.connect(gainNode);
+            scriptNode.connect(eqNodes[0]); // Connect source to start of EQ chain
         }
         
         function proc(e) {
@@ -445,9 +484,71 @@
                 if (scriptNode) scriptNode.disconnect();
                 scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
                 scriptNode.onaudioprocess = proc;
-                scriptNode.connect(gainNode);
+                scriptNode.connect(eqNodes[0]);
             }
         });
+        
+        // EQ Preset Logic
+        function applyEQ(type) {
+            ['eqFlat', 'eqPhone', 'eqBass'].forEach(id => $(id).classList.remove('active'));
+            if (type === 'flat') {
+                $('eqFlat').classList.add('active');
+                if(eqNodes.length) { eqNodes[0].gain.value = 0; eqNodes[1].gain.value = 0; eqNodes[2].gain.value = 0; }
+            } else if (type === 'phone') {
+                $('eqPhone').classList.add('active');
+                if(eqNodes.length) { eqNodes[0].gain.value = 4; eqNodes[1].gain.value = 1; eqNodes[2].gain.value = 6; }
+            } else if (type === 'bass') {
+                $('eqBass').classList.add('active');
+                if(eqNodes.length) { eqNodes[0].gain.value = 8; eqNodes[1].gain.value = 0; eqNodes[2].gain.value = 2; }
+            }
+        }
+        $('eqFlat').addEventListener('click', () => applyEQ('flat'));
+        $('eqPhone').addEventListener('click', () => applyEQ('phone'));
+        $('eqBass').addEventListener('click', () => applyEQ('bass'));
+
+        // Mic Logic
+        async function toggleMic() {
+            if (micStream) {
+                micStream.getTracks().forEach(t => t.stop());
+                if (micProc) micProc.disconnect();
+                if (micSrc) micSrc.disconnect();
+                micStream = null;
+                $('micToggle').innerText = 'Enable iPhone Mic';
+                $('micToggle').classList.remove('active');
+                $('micStatus').innerText = 'Off';
+            } else {
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                    if (!audioCtx) {
+                        audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
+                    }
+                    micSrc = audioCtx.createMediaStreamSource(micStream);
+                    micProc = audioCtx.createScriptProcessor(2048, 1, 1);
+                    
+                    micProc.onaudioprocess = (e) => {
+                        if (!ws || ws.readyState !== 1) return;
+                        const data = e.inputBuffer.getChannelData(0);
+                        const int16 = new Int16Array(data.length);
+                        for (let i = 0; i < data.length; i++) int16[i] = data[i] * 32767;
+                        ws.send(int16.buffer);
+                    };
+                    
+                    micSrc.connect(micProc);
+                    // Mute the mic processor so it doesn't play back on the iPhone speakers
+                    const dummyGain = audioCtx.createGain();
+                    dummyGain.gain.value = 0;
+                    micProc.connect(dummyGain);
+                    dummyGain.connect(audioCtx.destination);
+                    
+                    $('micToggle').innerText = 'Disable Mic';
+                    $('micToggle').classList.add('active');
+                    $('micStatus').innerText = 'Live';
+                } catch(e) {
+                    alert('Mic access denied or error: ' + e.message);
+                }
+            }
+        }
+        $('micToggle').addEventListener('click', toggleMic);
         
         // Stats
         setInterval(() => {
