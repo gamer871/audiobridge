@@ -169,7 +169,6 @@
                     sampleRate: SR, 
                     latencyHint: 'interactive' 
                 });
-                await audioCtx.resume();
                 
                 compressor = audioCtx.createDynamicsCompressor();
                 vocalEQ = audioCtx.createBiquadFilter();
@@ -192,11 +191,14 @@
                     audioEl = new Audio();
                     audioEl.srcObject = destNode.stream;
                     audioEl.playsInline = true;
-                    try {
-                        await audioEl.play();
-                    } catch (e) {}
                 }
             }
+            
+            if (audioCtx.state === 'suspended') {
+                try { await audioCtx.resume(); } catch (e) {}
+            }
+            try { await audioEl.play(); } catch (e) {}
+            
             if (scriptNode) scriptNode.disconnect();
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
