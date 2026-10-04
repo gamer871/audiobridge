@@ -208,14 +208,39 @@ class AudioBridgeServer:
               f"(total: {len(self.clients)})")
         try:
             async for message in websocket:
-                if isinstance(message, bytes) and hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
-                    self.mic_proc.stdin.write(message)
-                    await self.mic_proc.stdin.drain()
+                if isinstance(message, bytes):
+                    # Mic audio data
+                    if hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
+                        self.mic_proc.stdin.write(message)
+                        await self.mic_proc.stdin.drain()
+                elif isinstance(message, str):
+                    # Media control commands from earbuds/headphones
+                    await self._handle_media_command(message)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             self.clients.discard(websocket)
             print(f"[-] Client disconnected  (total: {len(self.clients)})")
+
+    async def _handle_media_command(self, cmd):
+        """Forward media control commands to the active desktop media player."""
+        commands = {
+            "play":         ["playerctl", "play"],
+            "pause":        ["playerctl", "pause"],
+            "play-pause":   ["playerctl", "play-pause"],
+            "next":         ["playerctl", "next"],
+            "prev":         ["playerctl", "previous"],
+        }
+        args = commands.get(cmd)
+        if args:
+            try:
+                await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except FileNotFoundError:
+                print("Warning: playerctl not installed. Install it for media controls.")
 
     async def audio_capture(self):
         print(f"Starting audio capture: {self.monitor}")
