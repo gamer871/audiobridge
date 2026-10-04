@@ -67,14 +67,16 @@ After installation, AudioBridge runs as a background service.
 3. Open Safari and go to `https://<your-pc-hostname>.local:8000`
 4. Tap the play button.
 
-### Controls
+### Features & Controls
 
-| Control | Description |
+| Feature | Description |
 |---|---|
-| Play / Pause | Start or stop audio streaming |
-| Volume | 0% – 200% (boost available) |
-| Max Latency | Target latency ceiling — lower is more real-time but may cause glitches |
-| Buffer Size | ScriptProcessor buffer — 1024 (lowest latency) to 4096 (smoothest) |
+| **Two-way Wireless Mic** | Tap "Enable iPhone Mic" to stream your phone's microphone back to your PC. It automatically appears as `iPhone_Microphone` in Discord/OBS/Sound Settings. |
+| **Smart Audio Mode** | Toggle between **Music** (unaltered, high fidelity) and **Video** (boosted dialogue, dynamic range compression for loud explosions). |
+| **Background Playback** | Lock your screen or switch apps on your iPhone — the audio will continue playing seamlessly via native iOS media integration. |
+| **Auto-Reconnect** | Automatically reconnects and resumes playing if you unplug and re-plug your USB cable. |
+
+*Note: Latency and buffer settings are hardcoded to the optimal values for wired USB (100ms max latency, 1024 frames) to ensure a perfectly smooth, zero-configuration experience.*
 
 ### Commands
 
@@ -99,7 +101,7 @@ journalctl --user -u audiobridge -f
   --port 8000 \
   --rate 48000 \
   --channels 2 \
-  --latency 10
+  --latency 20
 ```
 
 | Flag | Default | Description |
@@ -107,7 +109,7 @@ journalctl --user -u audiobridge -f
 | `-p, --port` | `8000` | Server port |
 | `-r, --rate` | `48000` | Sample rate (Hz) |
 | `-c, --channels` | `2` | Audio channels |
-| `-l, --latency` | `10` | Capture latency (ms) |
+| `-l, --latency` | `20` | Capture latency (ms) |
 | `-d, --device` | auto | PulseAudio monitor source |
 | `--cert-dir` | `~/.config/audiobridge/certs` | TLS certificate directory |
 
@@ -117,26 +119,7 @@ journalctl --user -u audiobridge -f
 ./uninstall.sh
 ```
 
-Removes the service, udev rule, application files, and certificates.
-
-## How it works (technical)
-
-```
-┌─────────────┐    parec     ┌──────────────┐   WSS    ┌─────────────┐
-│  System      │───(10ms)───→│  Python       │────────→│  Safari      │
-│  Audio Out   │   monitor   │  WebSocket    │  raw    │  Web Audio   │
-│  (PipeWire)  │             │  Server       │  PCM    │  API         │
-└─────────────┘              └──────────────┘         └─────────────┘
-                                   │
-                              HTTPS + WSS
-                             (self-signed CA)
-                              single port
-```
-
-1. `parec` captures the system audio monitor with 10ms latency
-2. Raw s16le PCM chunks are broadcast to all connected WebSocket clients
-3. The browser receives chunks, writes them into a ring buffer, and plays them via ScriptProcessorNode
-4. A latency governor automatically drops old audio data to stay within the configured latency target
+Removes the service, virtual microphones, udev rule, application files, and certificates.
 
 ## License
 
