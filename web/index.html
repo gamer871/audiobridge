@@ -385,19 +385,6 @@
         setInterval(() => {
             if (!playing) return;
             
-            // Watchdog: iOS Safari bug causes ScriptProcessorNode to permanently die 
-            // when switching audio routes (e.g. plugging in earbuds).
-            // If it hasn't fired in 1.5 seconds, we reconnect it to kickstart it.
-            if (Date.now() - lastProcTime > 1500 && audioCtx) {
-                if (scriptNode) scriptNode.disconnect();
-                scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
-                scriptNode.onaudioprocess = proc;
-                scriptNode.connect(vocalEQ);
-                lastProcTime = Date.now();
-                dropped += ((wP - rP + RING) % RING); // Clear the backlogged buffer
-                wP = rP = 0; // Reset pointers so we don't play 2 seconds of delayed audio
-            }
-            
             const avail = (wP - rP + RING) % RING;
             const ms = Math.round(avail / SR * 1000);
             
