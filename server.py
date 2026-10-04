@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-AudioBridge Server — Stream system audio to any device over your local network.
-
-Captures the default PulseAudio/PipeWire output monitor and serves it as raw
-PCM over a secure WebSocket. Also serves the web client over HTTPS on the
-same port.
-"""
+"""AudioBridge Server — Stream system audio to any device over your local network."""
 
 import asyncio
 import argparse
@@ -23,25 +17,14 @@ except ImportError:
     print("Install it with: pip install websockets")
     sys.exit(1)
 
-
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 DEFAULT_PORT = 8000
 DEFAULT_SAMPLE_RATE = 48000
 DEFAULT_CHANNELS = 2
 DEFAULT_LATENCY_MS = 10
-DEFAULT_CHUNK_FRAMES = 480  # 10ms at 48kHz
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
-
-# ---------------------------------------------------------------------------
-# Audio helpers
-# ---------------------------------------------------------------------------
-
 def get_default_monitor() -> str:
-    """Return the PulseAudio/PipeWire monitor source for the default sink."""
     try:
         result = subprocess.run(
             ["pactl", "get-default-sink"],
@@ -53,7 +36,6 @@ def get_default_monitor() -> str:
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
-    # Fallback: try to find any monitor source
     try:
         result = subprocess.run(
             ["pactl", "list", "sources", "short"],
@@ -70,13 +52,7 @@ def get_default_monitor() -> str:
     print("Make sure PulseAudio or PipeWire (with pipewire-pulse) is running.")
     sys.exit(1)
 
-
-# ---------------------------------------------------------------------------
-# Certificate management
-# ---------------------------------------------------------------------------
-
 def ensure_certs(cert_dir: str) -> tuple[str, str]:
-    """Generate self-signed TLS certificates if they don't exist."""
     cert_path = os.path.join(cert_dir, "cert.pem")
     key_path = os.path.join(cert_dir, "key.pem")
     ca_cert_pem = os.path.join(cert_dir, "ca-cert.pem")
@@ -89,7 +65,6 @@ def ensure_certs(cert_dir: str) -> tuple[str, str]:
     os.makedirs(cert_dir, exist_ok=True)
     print("Generating TLS certificates...")
 
-    # Generate CA
     subprocess.run([
         "openssl", "genrsa", "-out", ca_key_path, "2048"
     ], check=True, capture_output=True)
@@ -99,7 +74,6 @@ def ensure_certs(cert_dir: str) -> tuple[str, str]:
         "-days", "825", "-subj", "/CN=AudioBridge CA"
     ], check=True, capture_output=True)
 
-    # Generate server key + CSR
     subprocess.run([
         "openssl", "genrsa", "-out", key_path, "2048"
     ], check=True, capture_output=True)
@@ -109,20 +83,18 @@ def ensure_certs(cert_dir: str) -> tuple[str, str]:
         "-subj", "/CN=AudioBridge"
     ], check=True, capture_output=True)
 
-    # Determine SANs — include common private IP ranges and hostname
     hostname = subprocess.run(
         ["hostname"], capture_output=True, text=True
     ).stdout.strip()
 
     san_entries = [f"DNS:{hostname}.local", "DNS:localhost"]
 
-    # Find all local IPs
     try:
         result = subprocess.run(
             ["hostname", "-I"], capture_output=True, text=True
         )
         for ip in result.stdout.strip().split():
-            if ":" not in ip:  # Skip IPv6
+            if ":" not in ip:
                 san_entries.append(f"IP:{ip}")
     except FileNotFoundError:
         pass
@@ -145,7 +117,6 @@ def ensure_certs(cert_dir: str) -> tuple[str, str]:
         "-extfile", ext_file
     ], check=True, capture_output=True)
 
-    # DER format for iOS install
     subprocess.run([
         "openssl", "x509", "-in", ca_cert_pem,
         "-outform", "DER", "-out", ca_cert_der
@@ -155,11 +126,6 @@ def ensure_certs(cert_dir: str) -> tuple[str, str]:
     print(f"CA certificate for iOS: {ca_cert_der}")
     return cert_path, key_path
 
-
-# ---------------------------------------------------------------------------
-# Server
-# ---------------------------------------------------------------------------
-
 class AudioBridgeServer:
     def __init__(self, port, sample_rate, channels, latency_ms, monitor, cert_dir):
         self.port = port
@@ -168,9 +134,7 @@ class AudioBridgeServer:
         self.latency_ms = latency_ms
         self.monitor = monitor
         self.clients = set()
-        self.chunk_bytes = (
-            int(sample_rate * latency_ms / 1000) * channels * 2
-        )
+        self.chunk_bytes = int(sample_rate * latency_ms / 1000) * channels * 2
 
         cert_path, key_path = ensure_certs(cert_dir)
         self.ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -181,7 +145,7 @@ class AudioBridgeServer:
         if request.path == "/":
             return self._serve_file("index.html", "text/html; charset=utf-8")
         elif request.path == "/ws":
-            return None  # Upgrade to WebSocket
+            return None
         else:
             body = b"Not Found"
             return Response(404, "Not Found",
@@ -205,8 +169,7 @@ class AudioBridgeServer:
     async def ws_handler(self, websocket):
         self.clients.add(websocket)
         remote = websocket.remote_address
-        print(f"[+] Client connected from {remote[0]}:{remote[1]}  "
-              f"(total: {len(self.clients)})")
+        print(f"[+] Client connected from {remote[0]}:{remote[1]}  (total: {len(self.clients)})")
         try:
             async for message in websocket:
                 if isinstance(message, bytes) and hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
@@ -285,10 +248,7 @@ class AudioBridgeServer:
             subprocess.run(["pactl", "unload-module", self.mic_module1_id])
 
     async def run(self):
-        print(f"\n  AudioBridge")
-        print(f"  ──────────────────────────────")
-        print(f"  URL:  https://localhost:{self.port}")
-        print(f"  ──────────────────────────────\n")
+        print(f"\nAudioBridge\nURL: https://localhost:{self.port}\n")
         
         await self.setup_mic()
 
@@ -300,16 +260,11 @@ class AudioBridgeServer:
                 ssl=self.ssl_ctx,
                 process_request=self.process_request,
                 ping_interval=None,
-                max_size=65536,  # 64KB max per message — prevents abuse
+                max_size=65536,
             ):
                 await self.audio_capture()
         finally:
             self.cleanup_mic()
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
@@ -361,7 +316,6 @@ def main():
         asyncio.run(server.run())
     except KeyboardInterrupt:
         print("\nStopped.")
-
 
 if __name__ == "__main__":
     main()

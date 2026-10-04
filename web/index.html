@@ -135,35 +135,45 @@
     </div>
 
     <script>
-        const SR = 48000, CH = 2;
+        const SR = 48000;
+        const CH = 2;
         const RING = SR * 2;
-        const ringL = new Float32Array(RING), ringR = new Float32Array(RING);
-        let wP = 0, rP = 0, dropped = 0;
-        let maxLat = Math.floor(100 / 1000 * SR); // Fixed optimal 100ms
-        let curBuf = 1024; // Fixed optimal buffer
+        const ringL = new Float32Array(RING);
+        const ringR = new Float32Array(RING);
+        
+        let wP = 0;
+        let rP = 0;
+        let dropped = 0;
+        let maxLat = Math.floor(100 / 1000 * SR);
+        let curBuf = 1024;
         let audioCtx, ws, scriptNode, gainNode, audioEl, compressor, vocalEQ;
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
+        let latHistory = [];
         
         const $ = id => document.getElementById(id);
-        function badge(cls, txt) { $('badge').className = 'connection-badge '+cls; $('badgeText').innerText = txt; }
-        function fmtTime(s) { const m=Math.floor(s/60); return m+':'+String(Math.floor(s%60)).padStart(2,'0'); }
+        
+        function badge(cls, txt) {
+            $('badge').className = 'connection-badge ' + cls;
+            $('badgeText').innerText = txt;
+        }
+        
+        function fmtTime(s) {
+            const m = Math.floor(s / 60);
+            return m + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+        }
 
         async function initAudio() {
             if (!audioCtx) {
-                audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
                 await audioCtx.resume();
                 
-                // Smart Dynamics Compressor
                 compressor = audioCtx.createDynamicsCompressor();
-                
-                // Smart EQ for Vocals (Video mode)
                 vocalEQ = audioCtx.createBiquadFilter();
                 vocalEQ.type = 'peaking';
-                vocalEQ.frequency.value = 1500; // Vocal presence range
+                vocalEQ.frequency.value = 1500;
                 vocalEQ.Q.value = 1.0;
                 
-                // Initialize in Music Mode
                 setMode('music');
                 
                 gainNode = audioCtx.createGain();
@@ -179,7 +189,9 @@
                     audioEl = new Audio();
                     audioEl.srcObject = destNode.stream;
                     audioEl.playsInline = true;
-                    try { await audioEl.play(); } catch(e) {}
+                    try {
+                        await audioEl.play();
+                    } catch (e) {}
                 }
             }
             if (scriptNode) scriptNode.disconnect();
@@ -193,61 +205,107 @@
             if (mode === 'music') {
                 $('modeMusic').classList.add('active');
                 $('modeVideo').classList.remove('active');
-                vocalEQ.gain.value = 0; // Flat EQ — no processing
-                compressor.threshold.value = 0; // Never triggers
-                compressor.ratio.value = 1; // 1:1 = passthrough
+                vocalEQ.gain.value = 0;
+                compressor.threshold.value = 0;
+                compressor.ratio.value = 1;
                 compressor.knee.value = 0;
             } else {
                 $('modeVideo').classList.add('active');
                 $('modeMusic').classList.remove('active');
-                vocalEQ.gain.value = 4; // Boost vocal dialogue
+                vocalEQ.gain.value = 4;
                 compressor.threshold.value = -24;
                 compressor.ratio.value = 12;
                 compressor.knee.value = 30;
             }
         }
+        
         $('modeMusic').addEventListener('click', () => setMode('music'));
         $('modeVideo').addEventListener('click', () => setMode('video'));
         
         function proc(e) {
-            const oL=e.outputBuffer.getChannelData(0), oR=e.outputBuffer.getChannelData(1);
-            const len=e.outputBuffer.length;
+            const oL = e.outputBuffer.getChannelData(0);
+            const oR = e.outputBuffer.getChannelData(1);
+            const len = e.outputBuffer.length;
             let avail = (wP - rP + RING) % RING;
+            
             if (avail > maxLat) {
                 const skip = avail - (maxLat >> 1);
-                rP = (rP + skip) % RING; avail -= skip; dropped += skip;
+                rP = (rP + skip) % RING;
+                avail -= skip;
+                dropped += skip;
             }
-            for (let i=0; i<len; i++) {
+            
+            for (let i = 0; i < len; i++) {
                 if (avail > 0) {
-                    oL[i]=ringL[rP]; oR[i]=ringR[rP]; rP=(rP+1)%RING; avail--;
-                } else { oL[i]=0; oR[i]=0; }
+                    oL[i] = ringL[rP];
+                    oR[i] = ringR[rP];
+                    rP = (rP + 1) % RING;
+                    avail--;
+                } else {
+                    oL[i] = 0;
+                    oR[i] = 0;
+                }
             }
         }
         
         function connectWS() {
             if (ws && ws.readyState < 2) return;
-            badge('waiting','Connecting');
+            badge('waiting', 'Connecting');
             ws = new WebSocket(`wss://${location.hostname}:${location.port}/ws`);
             ws.binaryType = 'arraybuffer';
-            ws.onopen = () => { badge('on','Live'); startTs=Date.now(); wP=rP=0; dropped=0; };
+            ws.onopen = () => {
+                badge('on', 'Live');
+                startTs = Date.now();
+                wP = rP = 0;
+                dropped = 0;
+            };
             ws.onmessage = (e) => {
-                const d=new Int16Array(e.data), fr=d.length/CH;
-                for(let i=0;i<fr;i++){
-                    // Overflow guard: don't let wP lap rP
+                const d = new Int16Array(e.data);
+                const fr = d.length / CH;
+                for (let i = 0; i < fr; i++) {
                     const nextWP = (wP + 1) % RING;
-                    if (nextWP === rP) { dropped++; continue; }
-                    ringL[wP]=d[i*CH]/32768; ringR[wP]=d[i*CH+1]/32768; wP=nextWP;
+                    if (nextWP === rP) {
+                        dropped++;
+                        continue;
+                    }
+                    ringL[wP] = d[i * CH] / 32768;
+                    ringR[wP] = d[i * CH + 1] / 32768;
+                    wP = nextWP;
                 }
             };
             ws.onerror = () => {};
             ws.onclose = () => {
-                if (playing) { badge('waiting','Reconnecting'); reconTimer=setTimeout(connectWS,1000); }
-                else badge('off','Offline');
+                if (playing) {
+                    badge('waiting', 'Reconnecting');
+                    reconTimer = setTimeout(connectWS, 1000);
+                } else {
+                    badge('off', 'Offline');
+                }
             };
         }
         
-        async function start() { $('playBtn').disabled = true; await initAudio(); playing = true; connectWS(); $('playBtn').disabled = false; $('playBtn').classList.add('playing'); }
-        function stop() { playing = false; clearTimeout(reconTimer); if (ws) { ws.close(); ws = null; } $('playBtn').classList.remove('playing'); badge('off','Offline'); $('ringValue').innerText = '--'; $('ringCircle').style.strokeDashoffset = 527.79; latHistory = []; }
+        async function start() {
+            $('playBtn').disabled = true;
+            await initAudio();
+            playing = true;
+            connectWS();
+            $('playBtn').disabled = false;
+            $('playBtn').classList.add('playing');
+        }
+        
+        function stop() {
+            playing = false;
+            clearTimeout(reconTimer);
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            $('playBtn').classList.remove('playing');
+            badge('off', 'Offline');
+            $('ringValue').innerText = '--';
+            $('ringCircle').style.strokeDashoffset = 527.79;
+            latHistory = [];
+        }
         
         $('playBtn').addEventListener('click', () => playing ? stop() : start());
         $('volSlider').addEventListener('input', e => {
@@ -255,7 +313,6 @@
             if (gainNode) gainNode.gain.value = e.target.value / 100;
         });
 
-        // Mic Logic
         async function toggleMic() {
             if (micStream) {
                 micStream.getTracks().forEach(t => t.stop());
@@ -268,40 +325,41 @@
             } else {
                 try {
                     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-                    if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
                     micSrc = audioCtx.createMediaStreamSource(micStream);
                     micProc = audioCtx.createScriptProcessor(2048, 1, 1);
                     
                     micProc.onaudioprocess = (e) => {
                         if (!ws || ws.readyState !== 1) return;
                         const data = e.inputBuffer.getChannelData(0);
-                        const out = e.outputBuffer.getChannelData(0); // get output buffer to zero it
+                        const out = e.outputBuffer.getChannelData(0);
                         const int16 = new Int16Array(data.length);
                         for (let i = 0; i < data.length; i++) {
                             int16[i] = data[i] * 32767;
-                            out[i] = 0; // STRICTLY ZERO OUT TO PREVENT PHONE PLAYBACK
+                            out[i] = 0;
                         }
                         ws.send(int16.buffer);
                     };
                     
                     micSrc.connect(micProc);
-                    micProc.connect(audioCtx.destination); // Required for Safari to run onaudioprocess, but it's silenced!
+                    // Required for Safari to run onaudioprocess
+                    micProc.connect(audioCtx.destination);
                     
                     $('micToggle').innerText = 'Disable Mic';
                     $('micToggle').classList.add('active');
                     $('micStatus').innerText = 'Live';
-                } catch(e) { alert('Mic error: ' + e.message); }
+                } catch (e) {
+                    alert('Mic error: ' + e.message);
+                }
             }
         }
         $('micToggle').addEventListener('click', toggleMic);
         
-        let latHistory = [];
         setInterval(() => {
             if (!playing) return;
             const avail = (wP - rP + RING) % RING;
             const ms = Math.round(avail / SR * 1000);
             
-            // Moving average to prevent the UI from looking "bouncy" due to chunking
             latHistory.push(ms);
             if (latHistory.length > 4) latHistory.shift();
             const avgMs = Math.round(latHistory.reduce((a, b) => a + b) / latHistory.length);
@@ -313,8 +371,8 @@
             $('ringCircle').style.stroke = avgMs < 60 ? '#30d158' : avgMs < 120 ? '#ff9f0a' : '#ff453a';
             
             $('bufStat').innerText = avail;
-            $('dropStat').innerText = dropped > 999 ? (dropped/1000).toFixed(1)+'k' : dropped;
-            if (startTs) $('uptimeStat').innerText = fmtTime((Date.now()-startTs)/1000);
+            $('dropStat').innerText = dropped > 999 ? (dropped / 1000).toFixed(1) + 'k' : dropped;
+            if (startTs) $('uptimeStat').innerText = fmtTime((Date.now() - startTs) / 1000);
         }, 500);
     </script>
 </body>
