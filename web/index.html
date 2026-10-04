@@ -314,6 +314,19 @@
                 ws.close();
                 ws = null;
             }
+            // Completely destroy the AudioContext on stop.
+            // This guarantees that if iOS permanently corrupts the context
+            // during a route change or lock, toggling play off/on will
+            // create a 100% fresh, clean context instead of requiring a page refresh.
+            if (audioCtx) {
+                audioCtx.close().catch(()=>{});
+                audioCtx = null;
+                audioEl = null;
+                scriptNode = null;
+                compressor = null;
+                vocalEQ = null;
+                gainNode = null;
+            }
             $('playBtn').classList.remove('playing');
             badge('off', 'Offline');
             $('ringValue').innerText = '--';
