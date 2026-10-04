@@ -150,6 +150,7 @@
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
         let latHistory = [];
+        let lastProcTime = Date.now();
         
         const $ = id => document.getElementById(id);
         
@@ -169,6 +170,12 @@
                     sampleRate: SR, 
                     latencyHint: 'interactive' 
                 });
+                
+                audioCtx.onstatechange = () => {
+                    if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') {
+                        audioCtx.resume().catch(()=>{});
+                    }
+                };
                 
                 compressor = audioCtx.createDynamicsCompressor();
                 vocalEQ = audioCtx.createBiquadFilter();
@@ -203,6 +210,7 @@
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
             scriptNode.connect(vocalEQ);
+            lastProcTime = Date.now();
         }
         
         function setMode(mode) {
@@ -228,6 +236,7 @@
         $('modeVideo').addEventListener('click', () => setMode('video'));
         
         function proc(e) {
+            lastProcTime = Date.now();
             const oL = e.outputBuffer.getChannelData(0);
             const oR = e.outputBuffer.getChannelData(1);
             const len = e.outputBuffer.length;
@@ -362,6 +371,20 @@
         
         setInterval(() => {
             if (!playing) return;
+            
+            // Watchdog: iOS Safari bug causes ScriptProcessorNode to permanently die 
+            // when switching audio routes (e.g. plugging in earbuds).
+            // If it hasn't fired in 1.5 seconds, we reconnect it to kickstart it.
+            if (Date.now() - lastProcTime > 1500 && audioCtx) {
+                if (scriptNode) scriptNode.disconnect();
+                scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
+                scriptNode.onaudioprocess = proc;
+                scriptNode.connect(vocalEQ);
+                lastProcTime = Date.now();
+                dropped += ((wP - rP + RING) % RING); // Clear the backlogged buffer
+                wP = rP = 0; // Reset pointers so we don't play 2 seconds of delayed audio
+            }
+            
             const avail = (wP - rP + RING) % RING;
             const ms = Math.round(avail / SR * 1000);
             
