@@ -66,6 +66,10 @@
         .preset-btn { width: 100%; padding: 12px; border-radius: 10px; border: none; background: #38383a; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; margin-top: 4px; }
         .preset-btn.active { background: #ff3b30; }
 
+        .segmented-control { display: flex; background: #38383a; border-radius: 8px; padding: 2px; margin-top: 8px; }
+        .segment { flex: 1; padding: 8px; border: none; background: transparent; color: #86868b; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
+        .segment.active { background: #636366; color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
         .stats-row { display: flex; gap: 1px; margin-bottom: 16px; background: rgba(255,255,255,0.04); border-radius: 12px; overflow: hidden; }
         .stat-item { flex: 1; text-align: center; padding: 12px 8px; background: #1c1c1e; }
         .stat-item-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
@@ -110,6 +114,17 @@
         </div>
 
         <div class="slider-row">
+            <div class="slider-icon eq"><svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></div>
+            <div class="slider-content">
+                <div class="slider-title">Smart Audio Mode</div>
+                <div class="segmented-control">
+                    <button class="segment active" id="modeMusic">Music</button>
+                    <button class="segment" id="modeVideo">Video / Movie</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="slider-row">
             <div class="slider-icon mic"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></div>
             <div class="slider-content">
                 <div class="slider-title">Wireless PC Microphone <span class="slider-val" id="micStatus">Off</span></div>
@@ -125,7 +140,7 @@
         let wP = 0, rP = 0, dropped = 0;
         let maxLat = Math.floor(100 / 1000 * SR); // Fixed optimal 100ms
         let curBuf = 1024; // Fixed optimal buffer
-        let audioCtx, ws, scriptNode, gainNode, audioEl, compressor;
+        let audioCtx, ws, scriptNode, gainNode, audioEl, compressor, vocalEQ;
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
         
@@ -138,17 +153,22 @@
                 audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:SR});
                 await audioCtx.resume();
                 
-                // Automatic Dynamic Range Compressor (Optimal EQ/Balancing)
+                // Smart Dynamics Compressor
                 compressor = audioCtx.createDynamicsCompressor();
-                compressor.threshold.value = -24;
-                compressor.knee.value = 30;
-                compressor.ratio.value = 12;
-                compressor.attack.value = 0.003;
-                compressor.release.value = 0.25;
+                
+                // Smart EQ for Vocals (Video mode)
+                vocalEQ = audioCtx.createBiquadFilter();
+                vocalEQ.type = 'peaking';
+                vocalEQ.frequency.value = 1500; // Vocal presence range
+                vocalEQ.Q.value = 1.0;
+                
+                // Initialize in Music Mode
+                setMode('music');
                 
                 gainNode = audioCtx.createGain();
                 gainNode.gain.value = $('volSlider').value / 100;
                 
+                vocalEQ.connect(compressor);
                 compressor.connect(gainNode);
                 
                 const destNode = audioCtx.createMediaStreamDestination();
@@ -170,8 +190,27 @@
             if (scriptNode) scriptNode.disconnect();
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
-            scriptNode.connect(compressor);
+            scriptNode.connect(vocalEQ);
         }
+        
+        function setMode(mode) {
+            if (!compressor || !vocalEQ) return;
+            if (mode === 'music') {
+                $('modeMusic').classList.add('active');
+                $('modeVideo').classList.remove('active');
+                vocalEQ.gain.value = 0; // Flat EQ
+                compressor.threshold.value = -12; // Gentle compression
+                compressor.ratio.value = 3;
+            } else {
+                $('modeVideo').classList.add('active');
+                $('modeMusic').classList.remove('active');
+                vocalEQ.gain.value = 4; // Boost vocal dialogue
+                compressor.threshold.value = -24; // Aggressive compression (evens out explosions/whispers)
+                compressor.ratio.value = 12;
+            }
+        }
+        $('modeMusic').addEventListener('click', () => setMode('music'));
+        $('modeVideo').addEventListener('click', () => setMode('video'));
         
         function proc(e) {
             const oL=e.outputBuffer.getChannelData(0), oR=e.outputBuffer.getChannelData(1);
