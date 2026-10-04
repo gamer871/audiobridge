@@ -183,12 +183,8 @@
                 
                 if ('mediaSession' in navigator) {
                     navigator.mediaSession.metadata = new MediaMetadata({ title: 'PC Audio Stream', artist: 'AudioBridge' });
-                    // Route earbud/headphone controls to PC media player, NOT AudioBridge
-                    function sendCmd(c) { if (ws && ws.readyState === 1) ws.send(c); }
-                    navigator.mediaSession.setActionHandler('play', () => sendCmd('play'));
-                    navigator.mediaSession.setActionHandler('pause', () => sendCmd('pause'));
-                    navigator.mediaSession.setActionHandler('nexttrack', () => sendCmd('next'));
-                    navigator.mediaSession.setActionHandler('previoustrack', () => sendCmd('prev'));
+                    navigator.mediaSession.setActionHandler('play', () => start());
+                    navigator.mediaSession.setActionHandler('pause', () => stop());
                 }
             }
             if (scriptNode) scriptNode.disconnect();
