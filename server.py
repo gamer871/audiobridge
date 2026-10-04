@@ -233,7 +233,7 @@ class AudioBridgeServer:
 
         self.mic_proc = await asyncio.create_subprocess_exec(
             "pacat", "--playback", "--device=AudioBridge_Mic", 
-            "--format=s16le", "--rate=48000", "--channels=1", "--latency-msec=20",
+            "--format=s16le", "--rate=48000", "--channels=1", "--latency-msec=10",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,

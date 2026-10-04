@@ -144,7 +144,7 @@
         let wP = 0;
         let rP = 0;
         let dropped = 0;
-        let maxLat = Math.floor(100 / 1000 * SR);
+        let maxLat = Math.floor(60 / 1000 * SR);
         let curBuf = 1024;
         let audioCtx, ws, scriptNode, gainNode, audioEl, compressor, vocalEQ;
         let playing = false, startTs = null, reconTimer = null;
@@ -165,7 +165,10 @@
 
         async function initAudio() {
             if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ 
+                    sampleRate: SR, 
+                    latencyHint: 'interactive' 
+                });
                 await audioCtx.resume();
                 
                 compressor = audioCtx.createDynamicsCompressor();
