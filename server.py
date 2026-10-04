@@ -247,24 +247,29 @@ class AudioBridgeServer:
             proc.terminate()
 
     async def setup_mic(self):
-        print("Setting up virtual microphone (AudioBridge_Mic)...")
-        cmd = ["pactl", "load-module", "module-null-sink", 
-               "media.class=Audio/Source/Virtual", 
-               "sink_name=AudioBridge_Mic", 
-               "sink_properties=device.description=AudioBridge_Mic"]
+        print("Setting up virtual microphone...")
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0:
-                self.mic_module_id = res.stdout.strip()
-                print(f"Virtual microphone created (Module ID: {self.mic_module_id})")
-            else:
-                print("Warning: Failed to create virtual microphone.", res.stderr)
+            res1 = subprocess.run(["pactl", "load-module", "module-null-sink", 
+                                   "sink_name=AudioBridge_Mic", 
+                                   "sink_properties=device.description=AudioBridge_Receiver"], 
+                                  capture_output=True, text=True)
+            if res1.returncode == 0:
+                self.mic_module1_id = res1.stdout.strip()
+            
+            res2 = subprocess.run(["pactl", "load-module", "module-virtual-source", 
+                                   "source_name=AudioBridge_VirtualMic", 
+                                   "master=AudioBridge_Mic.monitor",
+                                   "source_properties=device.description=iPhone_Microphone"], 
+                                  capture_output=True, text=True)
+            if res2.returncode == 0:
+                self.mic_module2_id = res2.stdout.strip()
+                print("Virtual microphone 'iPhone_Microphone' created.")
         except Exception as e:
             print(f"Warning: {e}")
 
         self.mic_proc = await asyncio.create_subprocess_exec(
             "pacat", "--playback", "--device=AudioBridge_Mic", 
-            "--format=s16le", "--rate=48000", "--channels=1", "--latency-msec=10",
+            "--format=s16le", "--rate=48000", "--channels=1", "--latency-msec=20",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
@@ -273,8 +278,10 @@ class AudioBridgeServer:
     def cleanup_mic(self):
         if hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
             self.mic_proc.terminate()
-        if hasattr(self, 'mic_module_id') and self.mic_module_id:
-            subprocess.run(["pactl", "unload-module", self.mic_module_id])
+        if hasattr(self, 'mic_module2_id') and self.mic_module2_id:
+            subprocess.run(["pactl", "unload-module", self.mic_module2_id])
+        if hasattr(self, 'mic_module1_id') and self.mic_module1_id:
+            subprocess.run(["pactl", "unload-module", self.mic_module1_id])
 
     async def run(self):
         print(f"\n  AudioBridge")
