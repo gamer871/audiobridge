@@ -150,7 +150,6 @@
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
         let latHistory = [];
-        let lastProcTime = Date.now();
         
         const $ = id => document.getElementById(id);
         
@@ -171,9 +170,20 @@
                     latencyHint: 'interactive' 
                 });
                 
+                let wasInterrupted = false;
                 audioCtx.onstatechange = () => {
                     if (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted') {
+                        wasInterrupted = true;
                         audioCtx.resume().catch(()=>{});
+                    } else if (audioCtx.state === 'running' && wasInterrupted) {
+                        wasInterrupted = false;
+                        // iOS Safari permanently kills the processor after Siri/interruptions.
+                        // We must rebuild it when the hardware unlocks.
+                        if (scriptNode) scriptNode.disconnect();
+                        scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
+                        scriptNode.onaudioprocess = proc;
+                        scriptNode.connect(vocalEQ);
+                        wP = rP = 0; // flush stale buffer
                     }
                 };
                 
@@ -210,7 +220,7 @@
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
             scriptNode.connect(vocalEQ);
-            lastProcTime = Date.now();
+            wP = rP = 0; // flush stale buffer
         }
         
         function setMode(mode) {
@@ -236,7 +246,6 @@
         $('modeVideo').addEventListener('click', () => setMode('video'));
         
         function proc(e) {
-            lastProcTime = Date.now();
             const oL = e.outputBuffer.getChannelData(0);
             const oR = e.outputBuffer.getChannelData(1);
             const len = e.outputBuffer.length;
@@ -274,6 +283,8 @@
                 dropped = 0;
             };
             ws.onmessage = (e) => {
+                if (audioCtx && audioCtx.state !== 'running') return; // Pause processing when Siri/iOS interrupts
+                
                 const d = new Int16Array(e.data);
                 const fr = d.length / CH;
                 for (let i = 0; i < fr; i++) {
@@ -402,6 +413,13 @@
             $('dropStat').innerText = dropped > 999 ? (dropped / 1000).toFixed(1) + 'k' : dropped;
             if (startTs) $('uptimeStat').innerText = fmtTime((Date.now() - startTs) / 1000);
         }, 500);
+
+        // Also revive audio if switching back from another app (Spotify/Apple Music)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && playing && audioCtx && audioCtx.state !== 'running') {
+                audioCtx.resume().catch(()=>{});
+            }
+        });
     </script>
 </body>
 </html>

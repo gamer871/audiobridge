@@ -144,6 +144,22 @@ class AudioBridgeServer:
     def process_request(self, connection, request):
         if request.path == "/":
             return self._serve_file("index.html", "text/html; charset=utf-8")
+        elif request.path == "/ca.crt":
+            # Serve the generated CA cert directly from the certs directory
+            cert_dir = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")) + "/audiobridge/certs"
+            filepath = os.path.join(cert_dir, "ca-cert.crt")
+            try:
+                with open(filepath, "rb") as f:
+                    body = f.read()
+                return Response(200, "OK", Headers([
+                    ("Content-Type", "application/x-x509-ca-cert"),
+                    ("Content-Length", str(len(body))),
+                    ("Cache-Control", "no-cache"),
+                ]), body)
+            except FileNotFoundError:
+                body = b"CA Cert not found"
+                return Response(404, "Not Found",
+                                Headers([("Content-Length", str(len(body)))]), body)
         elif request.path == "/ws":
             return None
         else:

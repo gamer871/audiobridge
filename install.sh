@@ -139,7 +139,7 @@ summary() {
     echo "  AudioBridge installed."
     echo ""
     echo "  First-time iPhone setup:"
-    echo "    1. Safari -> http://<pc-ip>:8080 to grab the CA cert"
+    echo "    1. Safari -> https://$(hostname).local:8000/ca.crt to grab the CA cert"
     echo "    2. Settings -> General -> VPN & Device Management -> install it"
     echo "    3. Settings -> General -> About -> Certificate Trust -> enable it"
     echo "    4. Safari -> https://$(hostname).local:8000"
