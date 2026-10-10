@@ -217,7 +217,10 @@
                         wasInterrupted = false;
                         // iOS Safari permanently kills the processor after Siri/interruptions.
                         // We must rebuild it when the hardware unlocks.
-                        if (scriptNode) scriptNode.disconnect();
+                        if (scriptNode) {
+                            scriptNode.onaudioprocess = null;
+                            scriptNode.disconnect();
+                        }
                         scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
                         scriptNode.onaudioprocess = proc;
                         scriptNode.connect(gainNode);
@@ -243,7 +246,10 @@
             }
             try { await audioEl.play(); } catch (e) {}
             
-            if (scriptNode) scriptNode.disconnect();
+            if (scriptNode) {
+                scriptNode.onaudioprocess = null;
+                scriptNode.disconnect();
+            }
             scriptNode = audioCtx.createScriptProcessor(curBuf, 1, CH);
             scriptNode.onaudioprocess = proc;
             scriptNode.connect(gainNode);
@@ -382,6 +388,17 @@
             }
             // Completely destroy the AudioContext on stop.
             if (audioCtx) {
+                if (scriptNode) {
+                    scriptNode.onaudioprocess = null;
+                    scriptNode.disconnect();
+                }
+                if (gainNode) gainNode.disconnect();
+                if (micProc) {
+                    micProc.onaudioprocess = null;
+                    micProc.disconnect();
+                }
+                if (micSrc) micSrc.disconnect();
+
                 try { await audioCtx.close(); } catch(e) {}
                 audioCtx = null;
                 audioEl = null;
@@ -404,7 +421,10 @@
         async function toggleMic() {
             if (micStream) {
                 micStream.getTracks().forEach(t => t.stop());
-                if (micProc) micProc.disconnect();
+                if (micProc) {
+                    micProc.onaudioprocess = null;
+                    micProc.disconnect();
+                }
                 if (micSrc) micSrc.disconnect();
                 micStream = null;
                 $('micToggle').innerText = 'Enable Mobile Mic';
