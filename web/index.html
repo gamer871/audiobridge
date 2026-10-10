@@ -133,7 +133,7 @@
                 </div>
             </div>
             
-            <div class="slider-row" style="margin-bottom:0;">
+            <div class="slider-row">
                 <div class="slider-icon"><svg viewBox="0 0 24 24"><path d="M19 8H5c-1.66 0-3 1.34-3 3v2c0 1.66 1.34 3 3 3h14c1.66 0 3-1.34 3-3v-2c0-1.66-1.34-3-3-3zm-1 4H6v-2h12v2z"/></svg></div>
                 <div class="slider-content">
                     <div class="slider-title">Hardware Buffer (Requires Restart)</div>
@@ -142,6 +142,28 @@
                         <option value="512">512 Frames (Low)</option>
                         <option value="1024" selected>1024 Frames (Stable)</option>
                         <option value="2048">2048 Frames (Legacy)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="slider-row">
+                <div class="slider-icon"><svg viewBox="0 0 24 24"><path d="M12 3v18c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/><path d="M3 12c0 4.97 4.03 9 9 9V3c-4.97 0-9 4.03-9 9z" opacity="0.3"/></svg></div>
+                <div class="slider-content">
+                    <div class="slider-title">Channel Output</div>
+                    <select id="channelSelect" class="preset-btn" style="text-align:left; appearance:auto;">
+                        <option value="stereo" selected>Stereo (Normal)</option>
+                        <option value="mono">Force Mono (Single Earbud)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="slider-row" style="margin-bottom:0;">
+                <div class="slider-icon"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/></svg></div>
+                <div class="slider-content">
+                    <div class="slider-title">Mic Processing (Requires Mic Restart)</div>
+                    <select id="micProcSelect" class="preset-btn" style="text-align:left; appearance:auto;">
+                        <option value="voice" selected>Voice (Echo/Noise Cancel)</option>
+                        <option value="raw">Raw (Studio Quality)</option>
                     </select>
                 </div>
             </div>
@@ -161,6 +183,8 @@
         let dropped = 0;
         let maxLat = Math.floor(60 / 1000 * SR);
         let curBuf = 1024;
+        let forceMono = false;
+        let rawMic = false;
         let audioCtx, ws, scriptNode, gainNode, audioEl;
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
@@ -255,6 +279,14 @@
                 maxLat = Math.floor(minSafeMs / 1000 * SR);
             }
         });
+
+        $('channelSelect').addEventListener('change', (e) => {
+            forceMono = e.target.value === 'mono';
+        });
+
+        $('micProcSelect').addEventListener('change', (e) => {
+            rawMic = e.target.value === 'raw';
+        });
         
         function proc(e) {
             lastProcTime = Date.now();
@@ -318,8 +350,13 @@
                         dropped++;
                         continue;
                     }
-                    ringL[wP] = d[i * CH] / 32768;
-                    ringR[wP] = d[i * CH + 1] / 32768;
+                    let l = d[i * CH] / 32768;
+                    let r = d[i * CH + 1] / 32768;
+                    if (forceMono) {
+                        l = r = (l + r) / 2;
+                    }
+                    ringL[wP] = l;
+                    ringR[wP] = r;
                     wP = nextWP;
                 }
             };
@@ -385,7 +422,10 @@
                 $('micStatus').innerText = 'Off';
             } else {
                 try {
-                    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                    const constraints = rawMic 
+                        ? { audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }
+                        : { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
+                    micStream = await navigator.mediaDevices.getUserMedia(constraints);
                     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
                     micSrc = audioCtx.createMediaStreamSource(micStream);
                     micProc = audioCtx.createScriptProcessor(2048, 1, 1);
