@@ -164,6 +164,7 @@
         let audioCtx, ws, scriptNode, gainNode, audioEl;
         let playing = false, startTs = null, reconTimer = null;
         let micStream = null, micProc = null, micSrc = null;
+        let lastProcTime = Date.now();
         let latHistory = [];
         
         const $ = id => document.getElementById(id);
@@ -256,6 +257,7 @@
         });
         
         function proc(e) {
+            lastProcTime = Date.now();
             const oL = e.outputBuffer.getChannelData(0);
             const oR = e.outputBuffer.getChannelData(1);
             const len = e.outputBuffer.length;
@@ -305,7 +307,10 @@
                 dropped = 0;
             };
             ws.onmessage = (e) => {
-                if (audioCtx && audioCtx.state !== 'running') return; // Pause processing when Siri/iOS interrupts
+                // Pause processing when Siri/iOS interrupts. If the processor hasn't
+                // fired in 250ms, the hardware is locked. We discard packets silently
+                // to prevent the 40k dropped counter UI bug.
+                if (audioCtx && (audioCtx.state !== 'running' || Date.now() - lastProcTime > 250)) return; 
                 
                 const d = new Int16Array(e.data);
                 const fr = d.length / CH;
