@@ -413,6 +413,16 @@
                 $('micToggle').innerText = 'Enable Mobile Mic';
                 $('micToggle').classList.remove('active');
                 $('micStatus').innerText = 'Off';
+
+                // Mobile browsers permanently "taint" the AudioContext into a low-volume 
+                // Call Mode once a mic is used. We must completely destroy and rebuild it.
+                if (playing) {
+                    stop();
+                    setTimeout(start, 100);
+                } else if (audioCtx) {
+                    audioCtx.close().catch(()=>{});
+                    audioCtx = null;
+                }
             } else {
                 try {
                     const constraints = rawMic 
