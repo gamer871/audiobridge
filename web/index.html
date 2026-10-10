@@ -429,7 +429,9 @@
                         const out = e.outputBuffer.getChannelData(0);
                         const int16 = new Int16Array(data.length);
                         for (let i = 0; i < data.length; i++) {
-                            int16[i] = data[i] * 32767;
+                            // Clamp to prevent integer overflow (which causes harsh digital static)
+                            let s = Math.max(-1, Math.min(1, data[i]));
+                            int16[i] = s < 0 ? s * 32768 : s * 32767;
                             out[i] = 0;
                         }
                         ws.send(int16.buffer);

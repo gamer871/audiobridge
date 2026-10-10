@@ -189,8 +189,11 @@ class AudioBridgeServer:
         try:
             async for message in websocket:
                 if isinstance(message, bytes) and hasattr(self, 'mic_proc') and self.mic_proc and self.mic_proc.returncode is None:
-                    self.mic_proc.stdin.write(message)
-                    await self.mic_proc.stdin.drain()
+                    try:
+                        self.mic_proc.stdin.write(message)
+                        await self.mic_proc.stdin.drain()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
