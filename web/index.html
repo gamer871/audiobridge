@@ -114,6 +114,14 @@
             </div>
         </div>
 
+        <div class="slider-row">
+            <div class="slider-icon mic"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></div>
+            <div class="slider-content">
+                <div class="slider-title">Wireless PC Microphone <span class="slider-val" id="micStatus">Off</span></div>
+                <button class="preset-btn" id="micToggle">Enable iPhone Mic</button>
+            </div>
+        </div>
+
         <details class="advanced-details">
             <summary>Advanced Settings</summary>
             
@@ -139,13 +147,6 @@
             </div>
         </details>
 
-        <div class="slider-row">
-            <div class="slider-icon mic"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></div>
-            <div class="slider-content">
-                <div class="slider-title">Wireless PC Microphone <span class="slider-val" id="micStatus">Off</span></div>
-                <button class="preset-btn" id="micToggle">Enable iPhone Mic</button>
-            </div>
-        </div>
     </div>
 
     <script>
@@ -227,14 +228,31 @@
         }
         
         $('latSlider').addEventListener('input', (e) => {
-            const v = e.target.value;
-            $('latVal').innerText = v + 'ms';
-            maxLat = Math.floor(parseInt(v) / 1000 * SR);
+            let targetMs = parseInt(e.target.value);
+            
+            // It is mathematically impossible to have a target latency lower than
+            // the hardware buffer chunk size + 1 network frame. If they try to set it
+            // lower, it will constantly stutter. Snap it to the lowest possible safe value.
+            const minSafeMs = Math.ceil((curBuf / SR) * 1000) + 10;
+            if (targetMs < minSafeMs) {
+                targetMs = minSafeMs;
+                e.target.value = targetMs;
+            }
+            
+            $('latVal').innerText = targetMs + 'ms';
+            maxLat = Math.floor(targetMs / 1000 * SR);
         });
         
         $('bufSelect').addEventListener('change', (e) => {
             curBuf = parseInt(e.target.value);
-            // Will apply on next play due to require restart note
+            // Re-evaluate the latency slider to ensure it isn't lower than the new buffer size
+            let currentMs = parseInt($('latSlider').value);
+            const minSafeMs = Math.ceil((curBuf / SR) * 1000) + 10;
+            if (currentMs < minSafeMs) {
+                $('latSlider').value = minSafeMs;
+                $('latVal').innerText = minSafeMs + 'ms';
+                maxLat = Math.floor(minSafeMs / 1000 * SR);
+            }
         });
         
         function proc(e) {
@@ -244,10 +262,22 @@
             let avail = (wP - rP + RING) % RING;
             
             if (avail > maxLat) {
-                const skip = avail - (maxLat >> 1);
-                rP = (rP + skip) % RING;
-                avail -= skip;
-                dropped += skip;
+                // Ensure we never drop the buffer lower than what the hardware 
+                // physically needs for the next cycle, plus a tiny 5ms safety margin.
+                const safeTarget = curBuf + 240; 
+                if (safeTarget < maxLat) {
+                    const skip = avail - safeTarget;
+                    rP = (rP + skip) % RING;
+                    avail -= skip;
+                    dropped += skip;
+                } else {
+                    // If maxLat is so aggressive it conflicts with safeTarget,
+                    // just drop down to maxLat. (The UI slider safeguard prevents this).
+                    const skip = avail - maxLat;
+                    rP = (rP + skip) % RING;
+                    avail -= skip;
+                    dropped += skip;
+                }
             }
             
             for (let i = 0; i < len; i++) {
