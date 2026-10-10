@@ -102,7 +102,6 @@
     <div class="panel">
         <div class="stats-row">
             <div class="stat-item"><div class="stat-item-value" id="bufStat">--</div><div class="stat-item-label">Buffer</div></div>
-            <div class="stat-item"><div class="stat-item-value" id="dropStat">0</div><div class="stat-item-label">Dropped</div></div>
             <div class="stat-item"><div class="stat-item-value" id="uptimeStat">--</div><div class="stat-item-label">Uptime</div></div>
         </div>
         
@@ -180,7 +179,6 @@
         
         let wP = 0;
         let rP = 0;
-        let dropped = 0;
         let maxLat = Math.floor(60 / 1000 * SR);
         let curBuf = 1024;
         let forceMono = false;
@@ -299,14 +297,13 @@
                 // Ensure we never drop the buffer lower than what the hardware 
                 // physically needs for the next cycle, plus a tiny 5ms safety margin.
                 const safeTarget = curBuf + 240; 
-                if (safeTarget < maxLat) {
-                    const skip = avail - safeTarget;
-                    rP = (rP + skip) % RING;
-                    avail -= skip;
-                } else {
-                    // If maxLat is so aggressive it conflicts with safeTarget,
-                    // just drop down to maxLat. (The UI slider safeguard prevents this).
-                    const skip = avail - maxLat;
+                
+                // We want to cap the buffer at maxLat. But if maxLat is set aggressively
+                // low (below safeTarget), we cap at safeTarget instead to prevent underruns.
+                const target = Math.max(maxLat, safeTarget);
+                
+                if (avail > target) {
+                    const skip = avail - target;
                     rP = (rP + skip) % RING;
                     avail -= skip;
                 }
@@ -334,7 +331,6 @@
                 badge('on', 'Live');
                 startTs = Date.now();
                 wP = rP = 0;
-                dropped = 0;
             };
             ws.onmessage = (e) => {
                 // Pause processing when Siri/iOS interrupts. If the processor hasn't
@@ -346,10 +342,7 @@
                 const fr = d.length / CH;
                 for (let i = 0; i < fr; i++) {
                     const nextWP = (wP + 1) % RING;
-                    if (nextWP === rP) {
-                        dropped++;
-                        continue;
-                    }
+                    if (nextWP === rP) continue;
                     let l = d[i * CH] / 32768;
                     let r = d[i * CH + 1] / 32768;
                     if (forceMono) {
@@ -473,7 +466,6 @@
             $('ringCircle').style.stroke = avgMs < 60 ? '#30d158' : avgMs < 120 ? '#ff9f0a' : '#ff453a';
             
             $('bufStat').innerText = avail;
-            $('dropStat').innerText = dropped > 999 ? (dropped / 1000).toFixed(1) + 'k' : dropped;
             if (startTs) $('uptimeStat').innerText = fmtTime((Date.now() - startTs) / 1000);
         }, 500);
 

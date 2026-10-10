@@ -50,6 +50,13 @@ The Web Audio API requires HTTPS, so you need to trust the generated certificate
 
 The service runs in the background and auto-starts when your phone is plugged in.
 
+### Using the Microphone
+
+AudioBridge also allows you to use your phone as a high-quality microphone for your PC:
+1. Tap **Enable Mobile Mic** in the web interface and grant browser permissions.
+2. On your Linux PC, a new input device called `Mobile_Microphone` will appear. Select it in your apps (Discord, OBS, Zoom, etc.).
+3. Under **Advanced Settings**, you can toggle between **Voice** (echo/noise cancellation) and **Raw** (uncompressed studio quality) mic processing.
+
 ### Features
 
 - **Ultra-low latency** — tightly optimized for USB tethering speeds
