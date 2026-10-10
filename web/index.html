@@ -373,7 +373,7 @@
             $('playBtn').classList.add('playing');
         }
         
-        function stop() {
+        async function stop() {
             playing = false;
             clearTimeout(reconTimer);
             if (ws) {
@@ -381,11 +381,8 @@
                 ws = null;
             }
             // Completely destroy the AudioContext on stop.
-            // This guarantees that if iOS permanently corrupts the context
-            // during a route change or lock, toggling play off/on will
-            // create a 100% fresh, clean context instead of requiring a page refresh.
             if (audioCtx) {
-                audioCtx.close().catch(()=>{});
+                try { await audioCtx.close(); } catch(e) {}
                 audioCtx = null;
                 audioEl = null;
                 scriptNode = null;
@@ -417,19 +414,28 @@
                 // Mobile browsers permanently "taint" the AudioContext into a low-volume 
                 // Call Mode once a mic is used. We must completely destroy and rebuild it.
                 if (playing) {
-                    stop();
-                    setTimeout(start, 100);
+                    await stop();
+                    await start();
                 } else if (audioCtx) {
-                    audioCtx.close().catch(()=>{});
+                    try { await audioCtx.close(); } catch(e) {}
                     audioCtx = null;
                 }
             } else {
                 try {
+                    // Turn off audio before grabbing the mic to prevent the OS hardware 
+                    // sample rate switch from causing a loud pop or audio corruption.
+                    let wasPlaying = playing;
+                    if (wasPlaying) await stop();
+
                     const constraints = rawMic 
                         ? { audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }
                         : { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
                     micStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    // Restart audio on the new hardware audio route
+                    if (wasPlaying) await start();
                     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
+                    
                     micSrc = audioCtx.createMediaStreamSource(micStream);
                     micProc = audioCtx.createScriptProcessor(2048, 1, 1);
                     
