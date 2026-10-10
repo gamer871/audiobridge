@@ -271,14 +271,12 @@
                     const skip = avail - safeTarget;
                     rP = (rP + skip) % RING;
                     avail -= skip;
-                    dropped += skip;
                 } else {
                     // If maxLat is so aggressive it conflicts with safeTarget,
                     // just drop down to maxLat. (The UI slider safeguard prevents this).
                     const skip = avail - maxLat;
                     rP = (rP + skip) % RING;
                     avail -= skip;
-                    dropped += skip;
                 }
             }
             
