@@ -401,7 +401,11 @@
 
                 try { await audioCtx.close(); } catch(e) {}
                 audioCtx = null;
-                audioEl = null;
+                if (audioEl) {
+                    audioEl.pause();
+                    audioEl.srcObject = null;
+                    audioEl = null;
+                }
                 scriptNode = null;
                 gainNode = null;
             }
