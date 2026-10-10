@@ -91,11 +91,15 @@ EOF
 setup_udev() {
     info "Installing udev rule"
     local uid="$(id -u)"
+    local user="$(whoami)"
 
-    cat > "/tmp/${UDEV}" <<EOF
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", RUN+="/usr/bin/su $(whoami) -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus XDG_RUNTIME_DIR=/run/user/${uid} systemctl --user start ${SERVICE}'"
-ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", RUN+="/usr/bin/su $(whoami) -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus XDG_RUNTIME_DIR=/run/user/${uid} systemctl --user stop ${SERVICE}'"
-EOF
+    local rules=""
+    for vid in "05ac" "18d1" "04e8" "22d9" "2a70" "2717" "12d1" "22b8" "1004" "0fce" "2d95"; do
+        rules+="ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$vid\", RUN+=\"/usr/bin/su ${user} -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus XDG_RUNTIME_DIR=/run/user/${uid} systemctl --user start ${SERVICE}'\"\n"
+        rules+="ACTION==\"remove\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$vid\", RUN+=\"/usr/bin/su ${user} -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus XDG_RUNTIME_DIR=/run/user/${uid} systemctl --user stop ${SERVICE}'\"\n"
+    done
+
+    echo -e "$rules" > "/tmp/${UDEV}"
 
     sudo cp "/tmp/${UDEV}" "/etc/udev/rules.d/${UDEV}"
     sudo udevadm control --reload-rules
@@ -138,11 +142,12 @@ summary() {
     echo ""
     echo "  AudioBridge installed."
     echo ""
-    echo "  First-time iPhone setup:"
-    echo "    1. Safari -> https://$(hostname).local:8000/ca.crt to grab the CA cert"
-    echo "    2. Settings -> General -> VPN & Device Management -> install it"
-    echo "    3. Settings -> General -> About -> Certificate Trust -> enable it"
-    echo "    4. Safari -> https://$(hostname).local:8000"
+    echo "  First-time Phone Setup:"
+    echo "    1. Android: Open Chrome -> https://<pc-ip>:8000 (Accept the self-signed warning)"
+    echo "    2. iOS: Open Safari -> https://<pc-ip>:8000/ca.crt to grab the CA cert"
+    echo "       -> Settings -> General -> VPN & Device Management -> install it"
+    echo "       -> Settings -> General -> About -> Certificate Trust -> enable it"
+    echo "       -> Open Safari -> https://<pc-ip>:8000"
     echo ""
     echo "  Commands:"
     echo "    systemctl --user {start,stop,restart,status} audiobridge"

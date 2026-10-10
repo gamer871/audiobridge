@@ -239,11 +239,11 @@ class AudioBridgeServer:
             res2 = subprocess.run(["pactl", "load-module", "module-virtual-source", 
                                    "source_name=AudioBridge_VirtualMic", 
                                    "master=AudioBridge_Mic.monitor",
-                                   "source_properties=device.description=iPhone_Microphone"], 
+                                   "source_properties=device.description=Mobile_Microphone"], 
                                   capture_output=True, text=True)
             if res2.returncode == 0:
                 self.mic_module2_id = res2.stdout.strip()
-                print("Virtual microphone 'iPhone_Microphone' created.")
+                print("Virtual microphone 'Mobile_Microphone' created.")
         except Exception as e:
             print(f"Warning: {e}")
 
